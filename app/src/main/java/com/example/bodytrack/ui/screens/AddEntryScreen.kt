@@ -1,7 +1,11 @@
 package com.example.bodytrack.ui.screens
 
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -13,11 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -25,7 +28,6 @@ import com.example.bodytrack.viewmodel.EntryViewModel
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import android.widget.Toast
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,17 +41,35 @@ fun AddEntryScreen(navController: NavController) {
     var selectedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var tempPhotoFile by remember { mutableStateOf<File?>(null) }
 
-    // ----------------------------------- GALLERY PICKER -----------------------------------
+    // ----------------------- CAMERA LAUNCHER -----------------------
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempPhotoFile != null) {
+            val bitmap = BitmapFactory.decodeFile(tempPhotoFile!!.absolutePath)
+            selectedImage = bitmap.asImageBitmap()
+        }
+    }
+
+    // Request permission
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startCamera(context, { tempPhotoFile = it }, cameraLauncher)
+        } else {
+            Toast.makeText(context, "Camera permission required", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ----------------------- GALLERY PICKER -----------------------
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            val inputStream: InputStream? =
-                context.contentResolver.openInputStream(uri)
-
+            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
             val bitmap = BitmapFactory.decodeStream(inputStream)
 
-            // Save gallery file as a real file for DB
             val imagesDir = File(context.filesDir, "images")
             if (!imagesDir.exists()) imagesDir.mkdirs()
 
@@ -64,17 +84,7 @@ fun AddEntryScreen(navController: NavController) {
         }
     }
 
-    // ----------------------------------- CAMERA PICKER -----------------------------------
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && tempPhotoFile != null) {
-            val bitmap = BitmapFactory.decodeFile(tempPhotoFile!!.absolutePath)
-            selectedImage = bitmap.asImageBitmap()
-        }
-    }
-
-    // ----------------------------------- UI LAYOUT -----------------------------------
+    // ----------------------- UI -----------------------
     Scaffold(
         topBar = {
             TopAppBar(
@@ -97,7 +107,7 @@ fun AddEntryScreen(navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            // ----------------------------------- IMAGE PREVIEW -----------------------------------
+            // ----------------------- IMAGE PREVIEW -----------------------
             Box(
                 modifier = Modifier.size(180.dp),
                 contentAlignment = Alignment.Center
@@ -113,7 +123,7 @@ fun AddEntryScreen(navController: NavController) {
                 }
             }
 
-            // Pick from gallery
+            // Gallery button
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = { galleryLauncher.launch("image/*") }
@@ -121,28 +131,24 @@ fun AddEntryScreen(navController: NavController) {
                 Text("Choose From Gallery")
             }
 
-            // Take photo
+            // Take photo button
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
-                    val imagesDir = File(context.filesDir, "images")
-                    if (!imagesDir.exists()) imagesDir.mkdirs()
-
-                    val temp = File(imagesDir, "photo_${System.currentTimeMillis()}.jpg")
-                    tempPhotoFile = temp
-
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        context.packageName + ".provider",
-                        temp
-                    )
-                    cameraLauncher.launch(uri)
+                    when (ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)) {
+                        PackageManager.PERMISSION_GRANTED -> {
+                            startCamera(context, { tempPhotoFile = it }, cameraLauncher)
+                        }
+                        else -> {
+                            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                        }
+                    }
                 }
             ) {
                 Text("Take Photo")
             }
 
-            // ----------------------------------- WEIGHT INPUT -----------------------------------
+            // ----------------------- WEIGHT INPUT -----------------------
             OutlinedTextField(
                 value = weight,
                 onValueChange = { newValue ->
@@ -155,7 +161,7 @@ fun AddEntryScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // ----------------------------------- SAVE ENTRY -----------------------------------
+            // ----------------------- SAVE ENTRY -----------------------
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
@@ -169,7 +175,7 @@ fun AddEntryScreen(navController: NavController) {
 
                         Toast.makeText(context, "Entry Saved!", Toast.LENGTH_SHORT).show()
 
-                        navController.popBackStack() // Go back to HomeScreen
+                        navController.popBackStack()
                     }
                 }
             ) {
@@ -177,4 +183,26 @@ fun AddEntryScreen(navController: NavController) {
             }
         }
     }
+}
+
+
+// ----------------------- START CAMERA FUNCTION -----------------------
+fun startCamera(
+    context: android.content.Context,
+    setTempFile: (File) -> Unit,
+    cameraLauncher: androidx.activity.result.ActivityResultLauncher<android.net.Uri>
+) {
+    val imagesDir = File(context.filesDir, "images")
+    if (!imagesDir.exists()) imagesDir.mkdirs()
+
+    val file = File(imagesDir, "photo_${System.currentTimeMillis()}.jpg")
+    setTempFile(file)
+
+    val uri = FileProvider.getUriForFile(
+        context,
+        context.packageName + ".provider",
+        file
+    )
+
+    cameraLauncher.launch(uri)
 }

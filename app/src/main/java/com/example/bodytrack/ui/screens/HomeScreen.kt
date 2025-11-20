@@ -17,8 +17,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.bodytrack.data.EntryEntity
 import com.example.bodytrack.viewmodel.EntryViewModel
+import com.example.bodytrack.data.EntryEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,26 +26,23 @@ fun HomeScreen(
     navController: NavController,
     viewModel: EntryViewModel = viewModel()
 ) {
-    var entries by remember { mutableStateOf<List<EntryEntity>>(emptyList()) }
+    // Automatically updates when DB changes
+    val entries by viewModel.allEntries.collectAsState()
+
     var confirmDelete by remember { mutableStateOf<EntryEntity?>(null) }
 
-    // Load entries
-    LaunchedEffect(Unit) {
-        entries = viewModel.getAllEntries()
-    }
-
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("BodyTracker") })
-        },
+        topBar = { TopAppBar(title = { Text("BodyTracker") }) },
+
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { navController.navigate("add_entry") }
-            ) {
+            FloatingActionButton(onClick = {
+                navController.navigate("add_entry")
+            }) {
                 Text("+")
             }
         }
     ) { padding ->
+
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -64,18 +61,20 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
+
                 items(entries) { entry ->
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                // Later: navController.navigate("compare/${entry.id}")
-                            },
+                            .clickable { /* Click card if needed */ },
                         elevation = CardDefaults.cardElevation(6.dp)
                     ) {
+
                         Column(modifier = Modifier.padding(16.dp)) {
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
+
                                 val bitmap = BitmapFactory.decodeFile(entry.imagePath)
                                 val imageBitmap = bitmap?.asImageBitmap()
 
@@ -98,18 +97,31 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
 
                             Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                horizontalArrangement = Arrangement.SpaceEvenly,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                // EDIT BUTTON
+
+                                // EDIT entry
                                 IconButton(onClick = {
                                     navController.navigate("edit_entry/${entry.id}")
                                 }) {
                                     Icon(Icons.Default.Edit, contentDescription = "Edit Entry")
                                 }
 
-                                // DELETE BUTTON
-                                IconButton(onClick = { confirmDelete = entry }) {
+                                // COMPARE entry (this entry vs choose second one)
+                                IconButton(onClick = {
+                                    navController.navigate("compare/${entry.id}")
+                                }) {
+                                    Text("Compare")
+                                }
+
+
+
+
+                                // DELETE entry
+                                IconButton(onClick = {
+                                    confirmDelete = entry
+                                }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete Entry")
                                 }
                             }
@@ -120,29 +132,18 @@ fun HomeScreen(
         }
     }
 
-    // DELETE CONFIRM DIALOG
-    // DELETE CONFIRM DIALOG
+    // ==========================
+    // DELETE CONFIRMATION DIALOG
+    // ==========================
     if (confirmDelete != null) {
-
-        // When delete finishes, trigger refresh
-        var refreshTrigger by remember { mutableStateOf(0) }
-
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
 
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        val toDelete = confirmDelete!!
-                        confirmDelete = null
-
-                        // Delete from DB
-                        viewModel.deleteEntry(toDelete)
-
-                        // Trigger screen refresh
-                        refreshTrigger++
-                    }
-                ) { Text("Delete") }
+                TextButton(onClick = {
+                    viewModel.deleteEntry(confirmDelete!!)
+                    confirmDelete = null
+                }) { Text("Delete") }
             },
 
             dismissButton = {
@@ -154,17 +155,12 @@ fun HomeScreen(
             title = { Text("Delete Entry") },
             text = { Text("Are you sure you want to delete this entry?") }
         )
-
-        // REFRESH entries AFTER delete
-        LaunchedEffect(refreshTrigger) {
-            entries = viewModel.getAllEntries()
-        }
     }
 }
 
-    // ------------------------------
-// DATE FORMAT HELPER (must be OUTSIDE composable)
-// ------------------------------
+// -----------------------
+// DATE FORMATTER
+// -----------------------
 fun formatDate(timestamp: Long): String {
     val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
     return sdf.format(java.util.Date(timestamp))
